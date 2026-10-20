@@ -9,12 +9,12 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "test": "node --test test/*.test.cjs",
+    "test": "node --test \"test/*.test.cjs\"",
     "check": "node --check src/main/index.cjs && node --check src/main/connection-manager.cjs && node --check src/main/device-profiles.cjs && node --check src/main/discovery.cjs && node --check src/preload.cjs && node --check src/renderer/app.js",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac --arm64",
-    "dist:win": "npm prune --omit=optional && electron-builder --win --x64"
+    "dist": "electron-builder --publish never",
+    "dist:mac": "electron-builder --mac --arm64 --publish never",
+    "dist:win": "npm prune --omit=optional && electron-builder --win --x64 --publish never"
   },
   "dependencies": {
     "modbus-serial": "^8.0.23"

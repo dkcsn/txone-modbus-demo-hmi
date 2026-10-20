@@ -76,7 +76,7 @@ The HMI cannot command above `3072`. An external write up to `4096` is still rea
 
 ## Development
 
-Node.js 20 or newer is recommended.
+Node.js 22 or newer is recommended.
 
 ```sh
 npm install
