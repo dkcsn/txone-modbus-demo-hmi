@@ -1,6 +1,6 @@
 {
   "name": "txone-modbus-demo-hmi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cross-platform TXOne HMI for the CPU fan and windmill Modbus TCP demos",
   "main": "src/main/index.cjs",
   "author": "TXOne Networks",
@@ -10,7 +10,7 @@
     "start": "electron .",
     "dev": "electron .",
     "test": "node --test \"test/*.test.cjs\"",
-    "check": "node --check src/main/index.cjs && node --check src/main/connection-manager.cjs && node --check src/main/device-profiles.cjs && node --check src/main/discovery.cjs && node --check src/preload.cjs && node --check src/renderer/app.js",
+    "check": "node --check src/main/index.cjs && node --check src/main/connection-manager.cjs && node --check src/main/device-profiles.cjs && node --check src/main/discovery.cjs && node --check src/main/update-check.cjs && node --check src/preload.cjs && node --check src/renderer/app.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --publish never",
     "dist:mac": "electron-builder --mac --arm64 --publish never",
@@ -37,10 +37,16 @@
     },
     "mac": {
       "category": "public.app-category.utilities",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "nsis": {
       "oneClick": false,

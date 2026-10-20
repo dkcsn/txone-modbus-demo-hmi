@@ -10,6 +10,8 @@ const state = {
   draftSpeed: null,
   discovery: {},
   networks: [],
+  update: null,
+  checkingUpdate: false,
 };
 
 const speedControl = {
@@ -88,6 +90,21 @@ function toast(title, message, type = 'info') {
   setTimeout(() => element.remove(), 4_500);
 }
 
+function updateBanner() {
+  const update = state.update;
+  if (!update?.available) return '';
+  return `
+    <div class="update-banner" role="status">
+      <div><strong>Version ${escapeHtml(update.latestVersion)} is available</strong><span>You are running ${escapeHtml(update.currentVersion)}.</span></div>
+      <button class="button button-quiet" type="button" data-open-update>Download</button>
+    </div>`;
+}
+
+function updateCheckLink() {
+  if (state.update?.available) return '';
+  return `<button class="link-button" type="button" data-check-update ${state.checkingUpdate ? 'disabled' : ''}>${state.checkingUpdate ? 'Checking for updates…' : 'Check for updates'}</button>`;
+}
+
 function selectionView() {
   return `
     <div class="selection-shell">
@@ -97,6 +114,7 @@ function selectionView() {
         <span class="brand-title">Modbus Demo HMI</span>
       </header>
       <main class="chooser">
+        ${updateBanner()}
         <div class="eyebrow">Industrial control demonstrations</div>
         <h1>Choose a demo</h1>
         <p class="lead">Select the system you want to operate. Only the active demo can open a Modbus connection or send commands.</p>
@@ -131,7 +149,8 @@ function shell(content, device) {
           <button class="nav-button ${state.view === 'help' ? 'active' : ''}" data-view="help"><span class="nav-icon">?</span>Setup help</button>
           <button class="nav-button" data-select-demo=""><span class="nav-icon">⌘</span>Change demo</button>
         </nav>
-        <div class="sidebar-footer">TXOne Modbus Demo HMI · Version ${escapeHtml(state.version)}<br /><span>by Christian Søgaard Nielsen 2026</span></div>
+        ${updateBanner()}
+        <div class="sidebar-footer">TXOne Modbus Demo HMI · Version ${escapeHtml(state.version)}<br /><span>by Christian Søgaard Nielsen 2026</span><br />${updateCheckLink()}</div>
       </aside>
       <section class="workspace">
         <header class="topbar">
@@ -668,6 +687,26 @@ appRoot.addEventListener('click', async (event) => {
     return;
   }
 
+  if (event.target.closest('[data-open-update]')) {
+    await call(() => window.hmi.openUpdate());
+    return;
+  }
+
+  if (event.target.closest('[data-check-update]')) {
+    state.checkingUpdate = true;
+    render();
+    try {
+      const update = await window.hmi.checkUpdate();
+      state.update = update;
+      if (!update) toast('Update check failed', 'GitHub could not be reached. Check the internet connection.', 'error');
+      else if (!update.available) toast('No update available', `Version ${update.currentVersion} is the latest release.`, 'success');
+    } finally {
+      state.checkingUpdate = false;
+      render();
+    }
+    return;
+  }
+
   if (event.target.closest('#open-log-folder')) await window.hmi.openLogFolder();
 });
 
@@ -729,6 +768,15 @@ window.hmi.onState((device) => {
     && appRoot.querySelector('.windmill-scene');
   if (canPatchWindmill) updateWindmillLive(device);
   else render();
+});
+
+window.hmi.onUpdate((update) => {
+  const isNew = update?.available && update.latestVersion !== state.update?.latestVersion;
+  const bannerChanged = Boolean(update?.available) !== Boolean(state.update?.available);
+  state.update = update;
+  if (isNew) toast('Update available', `Version ${update.latestVersion} can be downloaded from GitHub.`, 'success');
+  // Re-rendering resets half-typed form fields, so only do it when the banner changes.
+  if (isNew || bannerChanged) render();
 });
 
 window.hmi.onLog((entry) => {

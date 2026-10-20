@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, net, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -6,13 +6,18 @@ const ModbusRTU = require('modbus-serial');
 const { ConnectionManager } = require('./connection-manager.cjs');
 const { fanProfile, windmillProfile, modelMatches } = require('./device-profiles.cjs');
 const { discoverArpDevices, active24Networks } = require('./discovery.cjs');
+const { checkForUpdate, RELEASE_PAGE_PREFIX } = require('./update-check.cjs');
 
 let mainWindow;
 let settingsPath;
 let logPath;
 let settings;
+let updateInfo = null;
+let updateCheck = null;
 const managers = new Map();
 const logs = [];
+const UPDATE_CHECK_DELAY_MS = 5_000;
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const profiles = new Map([
   [fanProfile.id, fanProfile],
   [windmillProfile.id, windmillProfile],
@@ -77,7 +82,28 @@ function publicState() {
     logs: logs.slice(-150),
     version: app.getVersion(),
     networks: active24Networks(),
+    update: updateInfo,
   };
+}
+
+function runUpdateCheck() {
+  // Demo networks are often offline, so a failed check is logged and otherwise ignored.
+  updateCheck ??= checkForUpdate({ currentVersion: app.getVersion(), fetch: net.fetch })
+    .then((result) => {
+      const newlyAvailable = result.available && result.latestVersion !== updateInfo?.latestVersion;
+      updateInfo = result;
+      if (newlyAvailable) log('info', 'app', `Version ${result.latestVersion} is available on GitHub`);
+      sendToRenderer('hmi:update', updateInfo);
+      return updateInfo;
+    })
+    .catch((error) => {
+      log('info', 'app', `Update check skipped: ${error.message}`);
+      return updateInfo;
+    })
+    .finally(() => {
+      updateCheck = null;
+    });
+  return updateCheck;
 }
 
 function createManager(profile) {
@@ -171,6 +197,11 @@ function registerIpc() {
   ipcMain.handle('hmi:get-log-path', () => logPath);
   ipcMain.handle('hmi:get-networks', () => active24Networks());
   ipcMain.handle('hmi:open-log-folder', () => shell.showItemInFolder(logPath));
+  ipcMain.handle('hmi:check-update', () => runUpdateCheck());
+  ipcMain.handle('hmi:open-update', () => {
+    if (!updateInfo?.url?.startsWith(RELEASE_PAGE_PREFIX)) throw new Error('No update is available');
+    return shell.openExternal(updateInfo.url);
+  });
   ipcMain.handle('hmi:discover', async (_event, id) => {
     const manager = requireManager(id);
     const profile = profiles.get(id);
@@ -225,6 +256,8 @@ app.whenReady().then(async () => {
   createManager(windmillProfile);
   registerIpc();
   createWindow();
+  setTimeout(runUpdateCheck, UPDATE_CHECK_DELAY_MS);
+  setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL_MS);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
