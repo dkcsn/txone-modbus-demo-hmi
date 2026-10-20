@@ -101,7 +101,10 @@ GitHub Actions also builds both platforms on demand and attaches packages to rel
 - `src/main/connection-manager.cjs` — reconnect and stale-data state machine.
 - `src/main/device-profiles.cjs` — Modbus register/coil maps and model validation.
 - `src/main/discovery.cjs` — cross-platform ARP parsing and bounded network probing.
-- `src/main/index.cjs` — Electron lifecycle, settings, IPC, logging, and discovery orchestration.
+- `src/main/index.cjs` — Electron lifecycle, settings, IPC, logging, and the update check.
+- `src/main/device-host.cjs` — utility process that runs all Modbus TCP and discovery traffic (required for macOS Local Network privacy).
+- `src/main/update-check.cjs` — compares the running version with the latest GitHub release.
+- `build/adhoc-sign.cjs` — signs the macOS app ad hoc under its own bundle identifier.
 - `src/renderer/` — TXOne-style operator interface.
 - `test/` — protocol, discovery, safety-limit, and connection-state tests.
 - `cpufan/` and `windmill/` — original implementations retained as design and protocol references.

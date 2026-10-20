@@ -1,6 +1,6 @@
 {
   "name": "txone-modbus-demo-hmi",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Cross-platform TXOne HMI for the CPU fan and windmill Modbus TCP demos",
   "main": "src/main/index.cjs",
   "author": "TXOne Networks",
@@ -10,7 +10,7 @@
     "start": "electron .",
     "dev": "electron .",
     "test": "node --test \"test/*.test.cjs\"",
-    "check": "node --check src/main/index.cjs && node --check src/main/connection-manager.cjs && node --check src/main/device-profiles.cjs && node --check src/main/discovery.cjs && node --check src/main/update-check.cjs && node --check src/preload.cjs && node --check src/renderer/app.js",
+    "check": "node --check src/main/index.cjs && node --check src/main/connection-manager.cjs && node --check src/main/device-profiles.cjs && node --check src/main/discovery.cjs && node --check src/main/update-check.cjs && node --check src/main/device-host.cjs && node --check src/preload.cjs && node --check src/renderer/app.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --publish never",
     "dist:mac": "electron-builder --mac --arm64 --publish never",
@@ -40,7 +40,11 @@
       "target": [
         "dmg",
         "zip"
-      ]
+      ],
+      "identity": null,
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "TXOne Modbus Demo HMI connects to Moxa ioLogik controllers on your local network over Modbus TCP and searches the network to find them."
+      }
     },
     "win": {
       "target": [
@@ -51,6 +55,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "afterPack": "build/adhoc-sign.cjs"
   }
 }

@@ -2,19 +2,25 @@
 
 ## Process boundaries
 
-The renderer displays state and sends validated IPC requests. It has no direct Node.js or network access. Modbus TCP, discovery, settings, and file logging run in the Electron main process through a context-isolated preload bridge.
+The renderer displays state and sends validated IPC requests through a context-isolated preload bridge. It has no direct Node.js or network access. The Electron main process owns the window, settings, file logging, and the update check. All device communication runs in a separate Electron utility process (`device-host.cjs`).
 
 ```text
 Renderer UI
     │ constrained IPC
     ▼
 Electron main process
+    ├── atomic settings + event log
+    ├── GitHub update check
+    │ message channel
+    ▼
+Device utility process
     ├── ConnectionManager per demo
     ├── Moxa identity validation
     ├── Modbus TCP client
-    ├── bounded local discovery
-    └── atomic settings + event log
+    └── bounded local discovery
 ```
+
+The split is required on macOS. Local Network privacy refuses plain sockets opened by the app's main process with `EHOSTUNREACH` and never shows the permission prompt, while a utility process is allowed through. If the utility process exits unexpectedly, the main process logs it and restarts it after one second.
 
 ## Connection state machine
 

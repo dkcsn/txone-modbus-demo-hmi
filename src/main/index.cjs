@@ -1,11 +1,8 @@
-const { app, BrowserWindow, ipcMain, net, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, net, shell, utilityProcess } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
-const ModbusRTU = require('modbus-serial');
-const { ConnectionManager } = require('./connection-manager.cjs');
-const { fanProfile, windmillProfile, modelMatches } = require('./device-profiles.cjs');
-const { discoverArpDevices, active24Networks } = require('./discovery.cjs');
+const { active24Networks } = require('./discovery.cjs');
 const { checkForUpdate, RELEASE_PAGE_PREFIX } = require('./update-check.cjs');
 
 let mainWindow;
@@ -14,14 +11,15 @@ let logPath;
 let settings;
 let updateInfo = null;
 let updateCheck = null;
-const managers = new Map();
+let deviceHost = null;
+let quitting = false;
+let nextCallId = 1;
+const pendingCalls = new Map();
+const deviceStates = {};
 const logs = [];
 const UPDATE_CHECK_DELAY_MS = 5_000;
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000;
-const profiles = new Map([
-  [fanProfile.id, fanProfile],
-  [windmillProfile.id, windmillProfile],
-]);
+const DEMO_IDS = ['fan', 'windmill'];
 
 const defaultSettings = {
   activeDemo: null,
@@ -69,16 +67,57 @@ async function saveSettings() {
   await fsp.rename(temporary, settingsPath);
 }
 
-function requireManager(id) {
-  const manager = managers.get(id);
-  if (!manager) throw new Error(`Unknown demo: ${id}`);
-  return manager;
+function requireDemo(id) {
+  if (!DEMO_IDS.includes(id)) throw new Error(`Unknown demo: ${id}`);
+  return id;
+}
+
+function callDevice(method, ...args) {
+  if (!deviceHost) return Promise.reject(new Error('Device communication is restarting. Try again.'));
+  return new Promise((resolve, reject) => {
+    const callId = nextCallId++;
+    pendingCalls.set(callId, { resolve, reject });
+    deviceHost.postMessage({ callId, method, args });
+  });
+}
+
+function onDeviceHostMessage(message) {
+  if (message.type === 'state') {
+    deviceStates[message.state.id] = message.state;
+    sendToRenderer('hmi:state', message.state);
+  } else if (message.type === 'log') {
+    log(message.level, message.source, message.message);
+  } else if (message.type === 'result') {
+    const call = pendingCalls.get(message.callId);
+    pendingCalls.delete(message.callId);
+    if (message.error) call?.reject(new Error(message.error));
+    else call?.resolve(message.value);
+  }
+}
+
+// Device communication runs in a utility process: on macOS the main process is refused
+// local network access (EHOSTUNREACH) while a utility process is not. See device-host.cjs.
+async function startDeviceHost() {
+  const host = utilityProcess.fork(path.join(__dirname, 'device-host.cjs'), [], { serviceName: 'TXOne device communication' });
+  deviceHost = host;
+  host.on('message', onDeviceHostMessage);
+  host.once('exit', (code) => {
+    if (deviceHost !== host) return;
+    deviceHost = null;
+    for (const call of pendingCalls.values()) call.reject(new Error('Device communication stopped'));
+    pendingCalls.clear();
+    if (quitting) return;
+    log('error', 'app', `Device communication stopped (exit code ${code}); restarting`);
+    setTimeout(() => startDeviceHost().catch((error) => log('error', 'app', `Could not restart device communication: ${error.message}`)), 1_000);
+  });
+  Object.assign(deviceStates, await callDevice('init', settings.devices));
+  for (const state of Object.values(deviceStates)) sendToRenderer('hmi:state', state);
 }
 
 function publicState() {
   return {
     activeDemo: settings.activeDemo,
-    devices: Object.fromEntries([...managers].map(([id, manager]) => [id, manager.snapshot()])),
+    devices: { ...deviceStates },
     logs: logs.slice(-150),
     version: app.getVersion(),
     networks: active24Networks(),
@@ -106,57 +145,10 @@ function runUpdateCheck() {
   return updateCheck;
 }
 
-function createManager(profile) {
-  const manager = new ConnectionManager({
-    id: profile.id,
-    label: profile.label,
-    createClient: () => new ModbusRTU(),
-    readSnapshot: (client) => profile.readSnapshot(client),
-    validateClient: (client) => profile.validateClient(client),
-    runCommand: (client, name, payload) => profile.runCommand(client, name, payload),
-    log,
-  });
-  manager.configure(settings.devices[profile.id]);
-  manager.on('state', (state) => sendToRenderer('hmi:state', state));
-  managers.set(profile.id, manager);
-}
-
-async function identifyCandidate(device, profile, config) {
-  const base = { ...device, expectedModel: profile.expectedModel };
-  if (!device.modbusOpen) return { ...base, verification: 'unreachable', modelMatches: false };
-
-  const client = new ModbusRTU();
-  try {
-    client.setID(config.unitId || 1);
-    client.setTimeout(900);
-    await client.connectTCP(device.ip, { port: config.port || 502, timeout: 900 });
-    const identity = await profile.readIdentity(client);
-    const matches = modelMatches(identity.model, profile.acceptedModels);
-    return {
-      ...base,
-      ...identity,
-      vendor: /^E12/i.test(identity.model) ? 'Moxa' : base.vendor,
-      verification: matches ? 'match' : 'wrong-model',
-      modelMatches: matches,
-    };
-  } catch (error) {
-    return {
-      ...base,
-      verification: 'unverified',
-      modelMatches: false,
-      identityError: error.message || String(error),
-    };
-  } finally {
-    try {
-      client.destroy?.(() => {});
-    } catch {}
-  }
-}
-
 async function selectDemo(id) {
-  if (id !== null && !managers.has(id)) throw new Error('Invalid demo selection');
-  for (const [otherId, manager] of managers) {
-    if (otherId !== id && manager.snapshot().status !== 'disconnected') await manager.disconnect();
+  if (id !== null && !DEMO_IDS.includes(id)) throw new Error('Invalid demo selection');
+  for (const otherId of DEMO_IDS) {
+    if (otherId !== id && deviceStates[otherId]?.status !== 'disconnected') await callDevice('disconnect', otherId);
   }
   settings.activeDemo = id;
   await saveSettings();
@@ -168,17 +160,16 @@ function registerIpc() {
   ipcMain.handle('hmi:get-state', () => publicState());
   ipcMain.handle('hmi:select-demo', (_event, id) => selectDemo(id));
   ipcMain.handle('hmi:update-config', async (_event, id, config) => {
-    const manager = requireManager(id);
-    if (manager.snapshot().status !== 'disconnected') await manager.disconnect();
-    manager.configure(config);
-    settings.devices[id] = { ...manager.snapshot().config };
+    requireDemo(id);
+    if (deviceStates[id]?.status !== 'disconnected') await callDevice('disconnect', id);
+    const snapshot = await callDevice('configure', id, config);
+    settings.devices[id] = { ...snapshot.config };
     await saveSettings();
     log('info', id, 'Connection settings saved');
-    return manager.snapshot();
+    return snapshot;
   });
   ipcMain.handle('hmi:set-auto-reconnect', async (_event, id, enabled) => {
-    const manager = requireManager(id);
-    const next = manager.setAutoReconnect(enabled);
+    const next = await callDevice('setAutoReconnect', requireDemo(id), enabled);
     settings.devices[id] = { ...next.config };
     await saveSettings();
     log('info', id, `Automatic reconnect ${next.config.autoReconnect ? 'enabled' : 'disabled'}`);
@@ -186,13 +177,13 @@ function registerIpc() {
   });
   ipcMain.handle('hmi:connect', async (_event, id) => {
     if (settings.activeDemo !== id) await selectDemo(id);
-    return requireManager(id).connect();
+    return callDevice('connect', requireDemo(id));
   });
-  ipcMain.handle('hmi:disconnect', (_event, id) => requireManager(id).disconnect());
-  ipcMain.handle('hmi:retry', (_event, id) => requireManager(id).retryNow());
+  ipcMain.handle('hmi:disconnect', (_event, id) => callDevice('disconnect', requireDemo(id)));
+  ipcMain.handle('hmi:retry', (_event, id) => callDevice('retry', requireDemo(id)));
   ipcMain.handle('hmi:command', (_event, id, command, payload) => {
     if (settings.activeDemo !== id) throw new Error('This demo is not active');
-    return requireManager(id).command(command, payload);
+    return callDevice('command', requireDemo(id), command, payload);
   });
   ipcMain.handle('hmi:get-log-path', () => logPath);
   ipcMain.handle('hmi:get-networks', () => active24Networks());
@@ -202,23 +193,7 @@ function registerIpc() {
     if (!updateInfo?.url?.startsWith(RELEASE_PAGE_PREFIX)) throw new Error('No update is available');
     return shell.openExternal(updateInfo.url);
   });
-  ipcMain.handle('hmi:discover', async (_event, id) => {
-    const manager = requireManager(id);
-    const profile = profiles.get(id);
-    const port = manager.snapshot().config.port || 502;
-    const config = manager.snapshot().config;
-    log('info', id, `Scanning local /24 networks and checking port ${port}`);
-    try {
-      const devices = await discoverArpDevices(port, [config.ip, '192.168.127.254']);
-      const identified = await Promise.all(devices.map((device) => identifyCandidate(device, profile, config)));
-      const matches = identified.filter((device) => device.modelMatches).length;
-      log('info', id, `Discovery found ${devices.length} candidate(s); ${matches} match ${profile.expectedModel}`);
-      return identified;
-    } catch (error) {
-      log('error', id, `Discovery failed: ${error.message}`);
-      throw error;
-    }
-  });
+  ipcMain.handle('hmi:discover', (_event, id) => callDevice('discover', requireDemo(id)));
 }
 
 function createWindow() {
@@ -252,8 +227,7 @@ app.whenReady().then(async () => {
   settingsPath = path.join(app.getPath('userData'), 'settings.json');
   logPath = path.join(app.getPath('userData'), 'hmi.log');
   settings = await loadSettings();
-  createManager(fanProfile);
-  createManager(windmillProfile);
+  await startDeviceHost();
   registerIpc();
   createWindow();
   setTimeout(runUpdateCheck, UPDATE_CHECK_DELAY_MS);
@@ -269,5 +243,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  for (const manager of managers.values()) manager.disconnect();
+  quitting = true;
+  callDevice('disconnectAll').catch(() => {});
 });

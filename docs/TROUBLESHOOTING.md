@@ -17,6 +17,10 @@ Check the switch ports' **native/untagged VLAN**. A Mac connected to an access p
 
 Also verify that a stale fixed-IP reservation in the router is not being mistaken for the ioLogik's actual static address. DHCP reservations do not reconfigure a statically addressed Moxa device.
 
+## macOS: "Moxa found · Modbus closed" or EHOSTUNREACH
+
+If the log shows `connect EHOSTUNREACH` while the ioLogik answers from Terminal (for example `nc -z 192.168.127.249 502`), macOS Local Network privacy is blocking the app. Version 0.1.2 and later run device communication in a utility process that macOS lets through. On older versions, update to the latest release. If the app appears under **System Settings → Privacy & Security → Local Network**, make sure it is switched on.
+
 ## Wrong device/model
 
 The app accepts only:
