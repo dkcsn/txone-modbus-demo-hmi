@@ -1,22 +1,50 @@
 {
-  "name": "modbus",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "txone-modbus-demo-hmi",
+  "version": "0.1.0",
+  "description": "Cross-platform TXOne HMI for the CPU fan and windmill Modbus TCP demos",
+  "main": "src/main/index.cjs",
+  "author": "TXOne Networks",
+  "license": "UNLICENSED",
+  "private": true,
   "scripts": {
-    "start:client": "cd cpufan/client && npm run dev",
-    "start:server": "node cpufan/server/index.js",
-    "start:frontend": "cd windmill/frontend && npm run dev -- --host",
-    "start:backend": "cd windmill/backend && npx ts-node src/index.ts",
-    "start-cpu-fan": "concurrently \"npm run start:server\" \"npm run start:client\"",
-    "setup-cpu-fan": "npm i && cd cpufan/client && npm i && cd ../server && npm i ",
-    "setup-windmill": "npm i && cd windmill/frontend && npm i && cd ../backend && npm i ",
-    "start-windmill": "concurrently \"npm run start:backend\" \"npm run start:frontend \""
+    "start": "electron .",
+    "dev": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "check": "node --check src/main/index.cjs && node --check src/main/connection-manager.cjs && node --check src/main/device-profiles.cjs && node --check src/main/discovery.cjs && node --check src/preload.cjs && node --check src/renderer/app.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac --arm64",
+    "dist:win": "npm prune --omit=optional && electron-builder --win --x64"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "concurrently": "^8.2.2"
+    "modbus-serial": "^8.0.23"
+  },
+  "devDependencies": {
+    "electron": "^38.4.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.txone.modbus-demo-hmi",
+    "productName": "TXOne Modbus Demo HMI",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }
