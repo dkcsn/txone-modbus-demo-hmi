@@ -221,7 +221,6 @@ function networkAlert(device) {
 function fanControl(device) {
   const telemetry = device.telemetry || { mode: 'off', speed: 0 };
   const online = device.status === 'online' && !device.stale;
-  const animation = telemetry.mode === 'high' ? 'fan-spinning-high' : telemetry.mode === 'low' ? 'fan-spinning-low' : '';
   return `
     <div class="page-heading"><div><h2>Fan control</h2><p>Direct control and live state from coils 0–1.</p></div></div>
     ${networkAlert(device)}
@@ -230,7 +229,7 @@ function fanControl(device) {
         <section class="panel">
           <div class="panel-header"><div><h3>Live fan status</h3><p>${device.stale ? 'Last verified state' : 'Updated once per second'}</p></div></div>
           <div class="machine-stage ${device.stale ? 'stale' : ''}">
-            <img class="fan-visual ${animation}" src="assets/fan.svg" alt="Fan status illustration" />
+            <img class="fan-visual" src="assets/fan.svg" alt="Fan status illustration" />
             <div class="machine-caption"><strong>${telemetry.mode === 'off' ? 'Fan stopped' : `${telemetry.mode === 'high' ? 'High' : 'Low'} speed`}</strong>${device.stale ? 'Waiting for verified data' : `${telemetry.speed}% command state`}</div>
           </div>
         </section>
@@ -329,6 +328,36 @@ function syncWindmillAnimation(scene, device) {
   if (Math.abs(Number(rotor.dataset.playbackRate || 0) - nextRate) > .01) {
     animation.updatePlaybackRate(nextRate);
     rotor.dataset.playbackRate = String(nextRate);
+  }
+  if (shouldSpin && animation.playState !== 'running') animation.play();
+  if (!shouldSpin && animation.playState !== 'paused') animation.pause();
+}
+
+const FAN_REVOLUTIONS_PER_SECOND = { low: 0.8, high: 1 / 0.48 };
+
+// The fan view is rebuilt on every poll, so render() keeps the same <img> and only the
+// playback rate changes. A script-created animation is used because a CSS animation
+// restarts at 0° whenever the element is moved into the new DOM.
+function fanSpin(visual) {
+  if (!visual.fanSpin) {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    visual.fanSpin = visual.animate(
+      [{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }],
+      { duration: reducedMotion ? 60_000 : 1_000, iterations: Infinity },
+    );
+    visual.fanSpin.pause();
+  }
+  return visual.fanSpin;
+}
+
+function syncFanAnimation(visual, device) {
+  if (!visual || !device) return;
+  const rate = FAN_REVOLUTIONS_PER_SECOND[device.telemetry?.mode] || 0;
+  const shouldSpin = device.status === 'online' && !device.stale && rate > 0;
+  const animation = fanSpin(visual);
+  if (rate && Math.abs(Number(visual.dataset.playbackRate || 0) - rate) > .01) {
+    animation.updatePlaybackRate(rate);
+    visual.dataset.playbackRate = String(rate);
   }
   if (shouldSpin && animation.playState !== 'running') animation.play();
   if (!shouldSpin && animation.playState !== 'paused') animation.pause();
@@ -556,6 +585,9 @@ function render() {
   const preservedWindmill = state.activeDemo === 'windmill' && state.view === 'control'
     ? appRoot.querySelector('.windmill-scene')
     : null;
+  const preservedFan = state.activeDemo === 'fan' && state.view === 'control'
+    ? appRoot.querySelector('.fan-visual')
+    : null;
   if (!state.activeDemo) {
     appRoot.innerHTML = selectionView();
     return;
@@ -571,6 +603,11 @@ function render() {
     const activeWindmill = preservedWindmill || newWindmill;
     if (preservedWindmill && newWindmill) newWindmill.replaceWith(preservedWindmill);
     syncWindmillAnimation(activeWindmill, device);
+  }
+  if (state.activeDemo === 'fan' && state.view === 'control') {
+    const newFan = appRoot.querySelector('.fan-visual');
+    if (preservedFan && newFan) newFan.replaceWith(preservedFan);
+    syncFanAnimation(preservedFan || newFan, device);
   }
 }
 

@@ -197,13 +197,11 @@ input:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgb(229 38 48 / 14
 .machine-stage { min-height: 380px; display: grid; place-items: center; position: relative; overflow: hidden; container-type: inline-size; background: radial-gradient(circle, #39393b 0, #29292a 62%); }
 .machine-stage::after { content: ""; position: absolute; inset: auto 8% 13%; height: 1px; background: linear-gradient(90deg, transparent, #56565a, transparent); }
 .fan-visual { width: 230px; height: 230px; opacity: .9; filter: drop-shadow(0 14px 18px rgb(0 0 0 / 28%)); }
-.fan-spinning-low { animation: spin 1.25s linear infinite; }
-.fan-spinning-high { animation: spin .48s linear infinite; }
 .windmill-scene { width: clamp(280px, 62cqw, 720px); max-width: 94%; height: auto; aspect-ratio: 520 / 490; overflow: visible; }
 .windmill-rotor { transform-origin: 260px 100px; transform-box: view-box; will-change: transform; }
 .windmill-rotor { animation: windmill-spin 60s linear infinite; }
 .stale .fan-visual, .stale .windmill-scene { opacity: .28; filter: grayscale(1); }
-.stale .fan-visual, .stale .windmill-rotor { animation-play-state: paused; }
+.stale .windmill-rotor { animation-play-state: paused; }
 .machine-caption { position: absolute; bottom: 24px; z-index: 1; color: var(--muted); text-align: center; }
 .machine-caption strong { display: block; margin-bottom: 4px; color: white; font-size: 18px; }
 
@@ -299,7 +297,7 @@ input[type="range"] { width: 100%; accent-color: var(--red); }
 @keyframes toast-in { from { transform: translateX(12px); opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .windmill-rotor, .fan-spinning-low, .fan-spinning-high { animation-duration: 60s; }
+  .windmill-rotor { animation-duration: 60s; }
 }
 
 @media (max-width: 1180px) {

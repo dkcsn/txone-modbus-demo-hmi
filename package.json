@@ -1,6 +1,6 @@
 {
   "name": "txone-modbus-demo-hmi",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Cross-platform TXOne HMI for the CPU fan and windmill Modbus TCP demos",
   "main": "src/main/index.cjs",
   "author": "TXOne Networks",
